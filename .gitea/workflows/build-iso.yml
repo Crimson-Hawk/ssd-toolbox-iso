@@ -6,39 +6,52 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: archlinux:latest
-      options: --privileged
     steps:
-      - name: Install prerequisites in Arch container
+      - name: Build ISO in privileged container
         run: |
-          pacman -Syu --noconfirm
-          pacman -S --noconfirm git base-devel sudo
+          # Use a named container so we can copy files out after the build
+          # (volume mounts don't work when the runner itself is containerized)
+          docker create --name iso-builder --privileged \
+            -v /dev:/dev \
+            -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
+            archlinux:latest bash -c '
+              set -euo pipefail
 
-      - name: Checkout repository
-        run: |
-          git clone --depth 1 --branch "${GITHUB_REF_NAME:-master}" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" /tmp/build
-          cd /tmp/build
-          echo "WORK_DIR=/tmp/build" >> "$GITHUB_ENV"
+              # Install prerequisites
+              pacman -Syu --noconfirm
+              pacman -S --noconfirm git base-devel sudo archiso grub efibootmgr
 
-      - name: Build AUR packages
-        run: |
-          cd "$WORK_DIR"
-          chmod +x build-aur-packages.sh
-          bash build-aur-packages.sh
+              # Clone the repo
+              git clone --depth 1 --branch "'"${GITHUB_REF_NAME:-master}"'" \
+                "'"${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"'" /build-dir
 
-      - name: Build ISO
+              # Setup non-root build user
+              useradd -m builder
+              echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+              chown -R builder:builder /build-dir
+
+              # Build AUR packages as non-root user
+              sudo -u builder bash -c "cd /build-dir && chmod +x build-aur-packages.sh && ./build-aur-packages.sh"
+
+              # Build ISO as root
+              mkdir -p /output
+              cd /build-dir
+              chmod +x build.sh
+              ./build.sh /output
+            '
+          docker start -a iso-builder
+          mkdir -p "${{ github.workspace }}/output"
+          docker cp iso-builder:/output/. "${{ github.workspace }}/output/"
+          docker rm iso-builder
+
+      - name: Verify ISO output
         run: |
-          cd "$WORK_DIR"
-          chmod +x build.sh
-          bash build.sh /tmp/iso-output
+          echo "Workspace: ${{ github.workspace }}"
+          echo "Contents of output directory:"
+          ls -lah "${{ github.workspace }}/output/" || echo "Directory not found"
 
       - name: Upload ISO artifact
-        run: |
-          pacman -S --noconfirm nodejs npm
-          env
-      - uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v3
         with:
           name: ssd-toolbox-iso
-          path: /tmp/iso-output/*.iso
-          retention-days: 30
+          path: output/

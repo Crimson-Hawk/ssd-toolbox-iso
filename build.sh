@@ -7,9 +7,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUTPUT_DIR="${1:-${SCRIPT_DIR}/out}"
-WORK_DIR="/tmp/archiso-work"
-PROFILE_DIR="/tmp/archiso-profile"
-AUR_REPO_DIR="/tmp/aur-repo"
+WORK_DIR="/build-work"
+PROFILE_DIR="/build-profile"
+AUR_REPO_DIR="/build-aur-repo"
 
 echo "==> Preparing archiso profile"
 

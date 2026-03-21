@@ -25,18 +25,18 @@ mkdir -p "$REPO_DIR"
 
 # Enable multilib repo (needed for kingston_fw_updater's lib32 deps)
 if ! grep -q '^\[multilib\]' /etc/pacman.conf; then
-    cat >> /etc/pacman.conf <<'MLEOF'
+    sudo tee -a /etc/pacman.conf >/dev/null <<'MLEOF'
 
 [multilib]
 Include = /etc/pacman.d/mirrorlist
 MLEOF
-    pacman -Sy --noconfirm
+    sudo pacman -Sy --noconfirm
 fi
 
 # Create a non-root user for makepkg
 if ! id "$BUILD_USER" &>/dev/null; then
-    useradd -m "$BUILD_USER"
-    echo "$BUILD_USER ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+    sudo useradd -m "$BUILD_USER"
+    echo "$BUILD_USER ALL=(ALL) NOPASSWD: ALL" | sudo tee -a /etc/sudoers >/dev/null
 fi
 
 # Install paru (AUR helper) as builduser
@@ -46,7 +46,7 @@ if ! command -v paru &>/dev/null; then
     cd paru-bin
     sudo -u "$BUILD_USER" makepkg -si --noconfirm
     cd /
-    rm -rf /tmp/paru-bin
+    sudo rm -rf /tmp/paru-bin
 fi
 
 # Build each AUR package
@@ -63,7 +63,7 @@ for pkg in "${AUR_PACKAGES[@]}"; do
     sudo -u "$BUILD_USER" makepkg -s --noconfirm --skippgpcheck || {
         echo "WARNING: Failed to build $pkg, skipping..."
         cd /
-        rm -rf "/tmp/${pkg}"
+        sudo rm -rf "/tmp/${pkg}"
         continue
     }
 
@@ -76,7 +76,7 @@ for pkg in "${AUR_PACKAGES[@]}"; do
     cp ./*.pkg.tar.xz "$REPO_DIR/" 2>/dev/null || true
 
     cd /
-    rm -rf "/tmp/${pkg}"
+    sudo rm -rf "/tmp/${pkg}"
 done
 
 # Create the local repo database
