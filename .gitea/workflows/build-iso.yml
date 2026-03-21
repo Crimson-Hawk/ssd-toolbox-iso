@@ -16,20 +16,28 @@ jobs:
           pacman -S --noconfirm git base-devel sudo
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        run: |
+          git clone --depth 1 --branch "${GITHUB_REF_NAME:-master}" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" /tmp/build
+          cd /tmp/build
+          echo "WORK_DIR=/tmp/build" >> "$GITHUB_ENV"
 
       - name: Build AUR packages
         run: |
+          cd "$WORK_DIR"
           chmod +x build-aur-packages.sh
           bash build-aur-packages.sh
 
       - name: Build ISO
         run: |
+          cd "$WORK_DIR"
           chmod +x build.sh
           bash build.sh /tmp/iso-output
 
       - name: Upload ISO artifact
-        uses: actions/upload-artifact@v3
+        run: |
+          pacman -S --noconfirm nodejs npm
+          env
+      - uses: actions/upload-artifact@v3
         with:
           name: ssd-toolbox-iso
           path: /tmp/iso-output/*.iso
