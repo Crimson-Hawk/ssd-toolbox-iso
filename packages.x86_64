@@ -1,0 +1,49 @@
+# Base system
+base
+linux
+linux-firmware
+mkinitcpio
+mkinitcpio-archiso
+syslinux
+
+# Boot
+grub
+efibootmgr
+
+# Networking (useful for downloading firmware updates)
+networkmanager
+iwd
+dhcpcd
+openssh
+curl
+wget
+
+# Shell & utilities
+bash
+zsh
+nano
+vim
+less
+man-db
+man-pages
+tmux
+htop
+
+# SSD / Storage tools (official repos)
+nvme-cli
+smartmontools
+hdparm
+util-linux
+parted
+sdparm
+sysstat
+
+# Hardware info
+pciutils
+usbutils
+dmidecode
+lshw
+
+# Build tools (needed for AUR packages)
+base-devel
+git
