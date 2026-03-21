@@ -14,6 +14,7 @@ AUR_PACKAGES=(
     oczclout
     samsung_magician-consumer-ssd
     hdsentinel
+    python-inquirerpy
     python-wd-fw-update-git
 )
 
@@ -21,6 +22,16 @@ REPO_DIR="/tmp/aur-repo"
 BUILD_USER="builduser"
 
 mkdir -p "$REPO_DIR"
+
+# Enable multilib repo (needed for kingston_fw_updater's lib32 deps)
+if ! grep -q '^\[multilib\]' /etc/pacman.conf; then
+    cat >> /etc/pacman.conf <<'MLEOF'
+
+[multilib]
+Include = /etc/pacman.d/mirrorlist
+MLEOF
+    pacman -Sy --noconfirm
+fi
 
 # Create a non-root user for makepkg
 if ! id "$BUILD_USER" &>/dev/null; then
@@ -55,6 +66,10 @@ for pkg in "${AUR_PACKAGES[@]}"; do
         rm -rf "/tmp/${pkg}"
         continue
     }
+
+    # Install the package locally so later AUR packages can depend on it
+    sudo pacman -U --noconfirm ./*.pkg.tar.zst 2>/dev/null || \
+    sudo pacman -U --noconfirm ./*.pkg.tar.xz 2>/dev/null || true
 
     # Move built packages to repo dir
     cp ./*.pkg.tar.zst "$REPO_DIR/" 2>/dev/null || \

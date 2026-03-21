@@ -13,8 +13,8 @@ AUR_REPO_DIR="/tmp/aur-repo"
 
 echo "==> Preparing archiso profile"
 
-# Install archiso
-pacman -Sy --noconfirm archiso
+# Install archiso and grub (grub needed for mkarchiso UEFI support)
+pacman -Sy --noconfirm archiso grub
 
 # Copy the releng profile as our base
 cp -r /usr/share/archiso/configs/releng/ "$PROFILE_DIR"
