@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUTPUT_DIR="${1:-${SCRIPT_DIR}/out}"
 WORK_DIR="/build-work"
 PROFILE_DIR="/build-profile"
-AUR_REPO_DIR="/build-aur-repo"
+AUR_REPO_DIR="/tmp/aur-repo"
 
 echo "==> Preparing archiso profile"
 
@@ -37,16 +37,14 @@ cp -r "$SCRIPT_DIR/airootfs/"* "$PROFILE_DIR/airootfs/" 2>/dev/null || true
 if [ -d "$AUR_REPO_DIR" ] && ls "$AUR_REPO_DIR"/*.pkg.tar.* &>/dev/null; then
     echo "==> Adding custom AUR repo to profile"
 
-    # Copy repo into airootfs so it's available during build
-    mkdir -p "$PROFILE_DIR/airootfs/tmp/aur-repo"
-    cp "$AUR_REPO_DIR"/* "$PROFILE_DIR/airootfs/tmp/aur-repo/"
-
     # Add the custom repo to pacman.conf used during build
-    cat >> "$PROFILE_DIR/pacman.conf" <<'EOF'
+    # The repo stays on the host at $AUR_REPO_DIR; pacstrap resolves
+    # file:// paths on the host, so no need to copy into airootfs.
+    cat >> "$PROFILE_DIR/pacman.conf" <<EOF
 
 [custom]
 SigLevel = Optional TrustAll
-Server = file:///tmp/aur-repo
+Server = file://$AUR_REPO_DIR
 EOF
 
     # Add AUR package names to packages list
