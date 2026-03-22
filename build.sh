@@ -24,6 +24,12 @@ cp "$SCRIPT_DIR/profiledef.sh" "$PROFILE_DIR/"
 cp "$SCRIPT_DIR/packages.x86_64" "$PROFILE_DIR/"
 cp "$SCRIPT_DIR/pacman.conf" "$PROFILE_DIR/"
 
+# Copy boot menu customizations (GRUB + syslinux)
+cp "$SCRIPT_DIR/grub/grub.cfg" "$PROFILE_DIR/grub/"
+cp "$SCRIPT_DIR/syslinux/archiso_head.cfg" "$PROFILE_DIR/syslinux/"
+cp "$SCRIPT_DIR/syslinux/archiso_sys.cfg" "$PROFILE_DIR/syslinux/"
+cp "$SCRIPT_DIR/syslinux/archiso_sys-linux.cfg" "$PROFILE_DIR/syslinux/"
+
 # Copy airootfs overlay
 cp -r "$SCRIPT_DIR/airootfs/"* "$PROFILE_DIR/airootfs/" 2>/dev/null || true
 
