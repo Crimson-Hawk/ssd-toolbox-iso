@@ -21,7 +21,9 @@ jobs:
         run: |
           # Use a named container so we can copy files out after the build
           # (volume mounts don't work when the runner itself is containerized)
-          docker create --name iso-builder --privileged \
+          CONTAINER_NAME="iso-builder-${{ github.run_id }}"
+          docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+          docker create --name "$CONTAINER_NAME" --privileged \
             -v /dev:/dev \
             -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
             archlinux:latest bash -c '
@@ -49,10 +51,10 @@ jobs:
               chmod +x build.sh
               ./build.sh /output
             '
-          docker start -a iso-builder
+          docker start -a "$CONTAINER_NAME"
           mkdir -p "${{ github.workspace }}/output"
-          docker cp iso-builder:/output/. "${{ github.workspace }}/output/"
-          docker rm iso-builder
+          docker cp "$CONTAINER_NAME":/output/. "${{ github.workspace }}/output/"
+          docker rm "$CONTAINER_NAME"
 
       - name: Verify ISO output
         run: |
