@@ -2,6 +2,12 @@ name: Sync to GitHub
 
 on:
   workflow_dispatch:
+    inputs:
+      sync_release:
+        description: 'Also sync the latest Gitea release to GitHub'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   sync:
@@ -10,7 +16,7 @@ jobs:
       image: node:18-alpine
     steps:
       - name: Install dependencies
-        run: apk add --no-cache git bash sed python3 py3-pip
+        run: apk add --no-cache git bash sed python3 py3-pip curl jq
 
       - name: Install TruffleHog
         run: pip3 install --break-system-packages trufflehog
@@ -34,6 +40,9 @@ jobs:
           # Remove origin remote to drop Gitea URL
           git remote remove origin 2>/dev/null || true
 
+          # Save original commit messages for diffing
+          git log --all --format='%H %s' > /tmp/before.txt
+
           # Escape dots for sed regex
           GITEA_HOST_ESCAPED=$(echo "$GITEA_HOST" | sed 's/\./\\./g')
 
@@ -41,6 +50,15 @@ jobs:
           FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch --force --msg-filter "
             sed 's|https\\?://${GITEA_HOST_ESCAPED}[^ ]*|<redacted>|g'
           " -- --all || true
+
+          # Show what changed
+          git log --all --format='%H %s' > /tmp/after.txt
+          echo "=== Sanitization diff ==="
+          diff /tmp/before.txt /tmp/after.txt || true
+          echo "========================="
+
+          CHANGED=$(diff /tmp/before.txt /tmp/after.txt | grep -c '^[<>]' || true)
+          echo "Commit messages modified: $((CHANGED / 2))"
 
           # Hard-fail if any reference to the Gitea host survives
           if git log --all --format='%B' | grep -qiF "$GITEA_HOST"; then
@@ -104,3 +122,93 @@ jobs:
           git push github --tags --force
 
           echo "Successfully synced to GitHub (${MIRROR_REPO})"
+
+      - name: Sync latest release to GitHub
+        if: ${{ github.event.inputs.sync_release == 'true' }}
+        shell: bash
+        env:
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+          MIRROR_REPO: ${{ secrets.MIRROR_REPO }}
+        run: |
+          set -euo pipefail
+
+          GITEA_HOST="${GITHUB_SERVER_URL#*://}"
+          GITEA_API="${GITHUB_SERVER_URL}/api/v1"
+
+          # Fetch latest release from Gitea
+          RELEASE_JSON=$(curl -sf \
+            -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+            "${GITEA_API}/repos/${{ github.repository }}/releases?limit=1" \
+            | jq '.[0]')
+
+          if [ "$RELEASE_JSON" = "null" ] || [ -z "$RELEASE_JSON" ]; then
+            echo "No releases found on Gitea. Skipping."
+            exit 0
+          fi
+
+          TAG=$(echo "$RELEASE_JSON" | jq -r '.tag_name')
+          NAME=$(echo "$RELEASE_JSON" | jq -r '.name')
+          BODY=$(echo "$RELEASE_JSON" | jq -r '.body')
+          DRAFT=$(echo "$RELEASE_JSON" | jq -r '.draft')
+          PRERELEASE=$(echo "$RELEASE_JSON" | jq -r '.prerelease')
+
+          # Sanitize release body — strip Gitea host references
+          GITEA_HOST_ESCAPED=$(echo "$GITEA_HOST" | sed 's/\./\\./g')
+          BODY=$(echo "$BODY" | sed "s|https\\?://${GITEA_HOST_ESCAPED}[^ ]*|<redacted>|g")
+
+          echo "Syncing release: $NAME ($TAG)"
+
+          # Extract GitHub owner/repo from MIRROR_REPO (github.com/owner/repo)
+          GH_OWNER_REPO=$(echo "$MIRROR_REPO" | sed 's|^github\.com/||')
+
+          # Delete existing release on GitHub for this tag (if any)
+          EXISTING_ID=$(curl -sf \
+            -H "Authorization: token ${MIRROR_TOKEN}" \
+            "https://api.github.com/repos/${GH_OWNER_REPO}/releases/tags/${TAG}" \
+            | jq -r '.id' 2>/dev/null || true)
+
+          if [ -n "$EXISTING_ID" ] && [ "$EXISTING_ID" != "null" ]; then
+            echo "Deleting existing GitHub release for tag ${TAG}..."
+            curl -sf -X DELETE \
+              -H "Authorization: token ${MIRROR_TOKEN}" \
+              "https://api.github.com/repos/${GH_OWNER_REPO}/releases/${EXISTING_ID}"
+          fi
+
+          # Create release on GitHub
+          GH_RELEASE_ID=$(curl -sf -X POST \
+            -H "Authorization: token ${MIRROR_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+              --arg tag "$TAG" \
+              --arg name "$NAME" \
+              --arg body "$BODY" \
+              --argjson draft "$DRAFT" \
+              --argjson prerelease "$PRERELEASE" \
+              '{tag_name: $tag, name: $name, body: $body, draft: $draft, prerelease: $prerelease}')" \
+            "https://api.github.com/repos/${GH_OWNER_REPO}/releases" \
+            | jq -r '.id')
+
+          echo "Created GitHub release ID: ${GH_RELEASE_ID}"
+
+          # Download and re-upload each asset
+          ASSETS=$(echo "$RELEASE_JSON" | jq -r '.assets[]?.browser_download_url // empty')
+
+          for ASSET_URL in $ASSETS; do
+            ASSET_NAME=$(basename "$ASSET_URL")
+            echo "Downloading asset: ${ASSET_NAME}"
+            curl -sfL \
+              -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+              -o "/tmp/${ASSET_NAME}" \
+              "$ASSET_URL"
+
+            echo "Uploading asset: ${ASSET_NAME}"
+            curl -sf -X POST \
+              -H "Authorization: token ${MIRROR_TOKEN}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@/tmp/${ASSET_NAME}" \
+              "https://uploads.github.com/repos/${GH_OWNER_REPO}/releases/${GH_RELEASE_ID}/assets?name=${ASSET_NAME}"
+
+            rm -f "/tmp/${ASSET_NAME}"
+          done
+
+          echo "Release ${TAG} synced to GitHub successfully."
