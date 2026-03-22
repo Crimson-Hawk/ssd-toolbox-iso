@@ -2,6 +2,16 @@ name: Build SSD Toolbox ISO
 
 on:
   workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create a release with the built ISO'
+        required: false
+        type: boolean
+        default: false
+      release_tag:
+        description: 'Release tag (e.g. v2026.03.22)'
+        required: false
+        type: string
 
 jobs:
   build:
@@ -55,3 +65,54 @@ jobs:
         with:
           name: ssd-toolbox-iso
           path: output/
+          retention-days: 7
+
+      - name: Generate release tag
+        id: release_tag
+        if: ${{ github.event.inputs.create_release == 'true' }}
+        run: |
+          TAG="${{ github.event.inputs.release_tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="v$(date +%Y.%m.%d)"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create draft release
+        if: ${{ github.event.inputs.create_release == 'true' }}
+        run: |
+          TAG="${{ steps.release_tag.outputs.tag }}"
+          ISO_FILE=$(ls output/*.iso)
+          ISO_NAME=$(basename "$ISO_FILE")
+          SHA256=$(sha256sum "$ISO_FILE" | cut -d' ' -f1)
+
+          RELEASE_BODY="## SSD Toolbox ${TAG}
+
+          ### Downloads
+          - \`${ISO_NAME}\`
+          - SHA256: \`${SHA256}\`
+
+          ### Boot modes
+          - UEFI (GRUB)
+          - BIOS (syslinux)"
+
+          # Create draft release via Gitea API
+          RELEASE_ID=$(curl -s -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+              --arg tag "$TAG" \
+              --arg name "SSD Toolbox $TAG" \
+              --arg body "$RELEASE_BODY" \
+              '{tag_name: $tag, name: $name, body: $body, draft: true, prerelease: false}')" \
+            "${{ github.server_url }}/api/v1/repos/${{ github.repository }}/releases" \
+            | jq -r '.id')
+
+          echo "Created draft release with ID: $RELEASE_ID"
+
+          # Upload the ISO as a release asset
+          curl -s -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -F "attachment=@$ISO_FILE" \
+            "${{ github.server_url }}/api/v1/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets"
+
+          echo "Draft release created: ${{ github.server_url }}/${{ github.repository }}/releases/tag/$TAG"
