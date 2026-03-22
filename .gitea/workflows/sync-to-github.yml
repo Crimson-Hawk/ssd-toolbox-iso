@@ -16,10 +16,13 @@ jobs:
       image: node:18-alpine
     steps:
       - name: Install dependencies
-        run: apk add --no-cache git bash sed python3 py3-pip curl jq
+        run: apk add --no-cache git bash sed curl jq
 
-      - name: Install TruffleHog
-        run: pip3 install --break-system-packages trufflehog
+      - name: Install Gitleaks
+        run: |
+          GITLEAKS_VERSION=$(curl -sf https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+          curl -sfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_arm64.tar.gz" \
+            | tar xz -C /usr/local/bin gitleaks
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -73,31 +76,14 @@ jobs:
 
           echo "Commit history sanitized successfully."
 
-      - name: Scan for secrets with TruffleHog
+      - name: Scan for secrets with Gitleaks
         shell: bash
         run: |
           set -euo pipefail
 
           echo "Scanning repository for leaked secrets..."
-          RESULTS=$(trufflehog git --no-update file://. --json 2>/dev/null || true)
-
-          if [ -n "$RESULTS" ]; then
-            echo "::error::TruffleHog detected potential secrets in the repository!"
-            echo "$RESULTS" | python3 -c "
-          import sys, json
-          for line in sys.stdin:
-              line = line.strip()
-              if not line:
-                  continue
-              try:
-                  finding = json.loads(line)
-                  print(f\"  Detector: {finding.get('DetectorName', 'unknown')}\")
-                  print(f\"  File:     {finding.get('SourceMetadata', {}).get('Data', {}).get('Git', {}).get('file', 'unknown')}\")
-                  print(f\"  Commit:   {finding.get('SourceMetadata', {}).get('Data', {}).get('Git', {}).get('commit', 'unknown')}\")
-                  print()
-              except json.JSONDecodeError:
-                  pass
-          "
+          if ! gitleaks detect --source . --no-banner -v; then
+            echo "::error::Gitleaks detected potential secrets in the repository!"
             exit 1
           fi
 
